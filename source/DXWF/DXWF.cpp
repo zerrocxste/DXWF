@@ -47,6 +47,22 @@ void DXWFWndProcCallbacks(DWORD pWndProcAttr, callback_wndproc cCallbackFunction
 	case DXWF_WNDPROC_WM_LBUTTONUP_:
 		mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP_] = cCallbackFunction;
 		break;
+	case DXWF_WNDPROC_WM_SYSKEYDOWN_:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYDOWN_] = cCallbackFunction;
+		break;
+	case DXWF_WNDPROC_WM_SYSCHAR_:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_SYSCHAR_] = cCallbackFunction;
+		break;
+	case DXWF_WNDPROC_WM_SYSKEYUP_:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYUP_] = cCallbackFunction;
+		break;
+	case DXWF_WNDPROC_WM_KEYDOWN_:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_KEYUP_:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_CHAR_:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_] = cCallbackFunction;
+		break;
 	default:
 		std::cout << "DXWF: Error #1 " << __FUNCTION__ << " () -> Unknown arg\n";
 		break;
@@ -79,48 +95,66 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 	switch (message)
 	{
-	case WM_SIZE:
-		if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
-		{
-			g_d3dpp.BackBufferWidth = LOWORD(lParam);
-			g_d3dpp.BackBufferHeight = HIWORD(lParam);
+		case WM_SIZE:
+			if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
+			{
+				g_d3dpp.BackBufferWidth = LOWORD(lParam);
+				g_d3dpp.BackBufferHeight = HIWORD(lParam);
 
-			if (mRenderCallbacks[DXWF_RENDERER_RESET_] != nullptr)
-				mRenderCallbacks[DXWF_RENDERER_RESET_]();
+				if (mRenderCallbacks[DXWF_RENDERER_RESET_] != nullptr)
+					mRenderCallbacks[DXWF_RENDERER_RESET_]();
 
-			HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
-			if (hr == D3DERR_INVALIDCALL)
-				assert(0);
+				HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
+				if (hr == D3DERR_INVALIDCALL)
+					assert(0);
 
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE_](hWnd, message, wParam, lParam);
-		}
-		return 0;
-	case WM_SYSCOMMAND:
-		if ((wParam & 0xfff0) == SC_KEYMENU)
+				if (mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE_] != nullptr)
+					mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE_](hWnd, message, wParam, lParam);
+			}
 			return 0;
-		break;
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		return 0;
-	case WM_MOUSEMOVE:
-	{
-		if (mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE_] != nullptr)
-			mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE_](hWnd, message, wParam, lParam);
-		break;
-	}
-	case WM_LBUTTONDOWN:
-	{
-		if (mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN_] != nullptr)
-			mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN_](hWnd, message, wParam, lParam);
-		break;
-	}
-	case WM_LBUTTONUP:
-	{
-		if (mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP_] != nullptr)
-			mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP_](hWnd, message, wParam, lParam);
-		break;
-	}
+		case WM_SYSCOMMAND:
+			if ((wParam & 0xfff0) == SC_KEYMENU)
+				return 0;
+			break;
+		case WM_DESTROY:
+			PostQuitMessage(0);
+			return 0;
+		case WM_MOUSEMOVE:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE_](hWnd, message, wParam, lParam);
+			break;	
+		case WM_LBUTTONDOWN:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN_](hWnd, message, wParam, lParam);
+			break;
+		case WM_LBUTTONUP:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP_](hWnd, message, wParam, lParam);
+			break;
+		case WM_SYSKEYDOWN:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYDOWN_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYDOWN_](hWnd, message, wParam, lParam);
+			break;
+		case WM_SYSCHAR:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SYSCHAR_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_SYSCHAR_](hWnd, message, wParam, lParam);
+			break;
+		case WM_SYSKEYUP:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYUP_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYUP_](hWnd, message, wParam, lParam);
+			break;
+		case WM_KEYDOWN:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN_](hWnd, message, wParam, lParam);
+			break;
+		case WM_KEYUP:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP_](hWnd, message, wParam, lParam);
+			break;
+		case WM_CHAR:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_](hWnd, message, wParam, lParam);
+			break;
 	}
 
 	return DefWindowProc(hWnd, message, wParam, lParam);
@@ -136,8 +170,8 @@ BOOL DXWFCreateWindow(
 	LPCSTR szWindowName,
 	const int iWindowPositionX, const int iWindowPositionY,
 	const int iWindowSizeX, const int iWindowSizeY,
-	DWORD dwWindowArg/*,
-	const int pIcon = 0*/)
+	DWORD dwWindowArg,
+	int pIcon)
 {
 	pszWindowName = szWindowName;
 
@@ -145,7 +179,7 @@ BOOL DXWFCreateWindow(
 	wcWindowClass.lpfnWndProc = (WNDPROC)WndProc;
 	wcWindowClass.style = CS_HREDRAW | CS_VREDRAW;
 	wcWindowClass.hInstance = phInstance;
-	//wcWindowClass.hIcon = LoadIcon(phInstance, MAKEINTRESOURCE(0));
+	wcWindowClass.hIcon = LoadIcon(phInstance, MAKEINTRESOURCE(pIcon));
 	wcWindowClass.lpszClassName = szWindowName;
 	wcWindowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
 	wcWindowClass.hbrBackground = (HBRUSH)COLOR_APPWORKSPACE;
