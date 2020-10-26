@@ -58,8 +58,10 @@ void DXWFWndProcCallbacks(DWORD pWndProcAttr, callback_wndproc cCallbackFunction
 		break;
 	case DXWF_WNDPROC_WM_KEYDOWN_:
 		mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN_] = cCallbackFunction;
+		break;
 	case DXWF_WNDPROC_WM_KEYUP_:
 		mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP_] = cCallbackFunction;
+		break;
 	case DXWF_WNDPROC_WM_CHAR_:
 		mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_] = cCallbackFunction;
 		break;
@@ -185,7 +187,7 @@ BOOL DXWFCreateWindow(
 	wcWindowClass.hbrBackground = (HBRUSH)COLOR_APPWORKSPACE;
 	RegisterClass(&wcWindowClass);
 
-	HWND hWnd = CreateWindow
+	phWindow = CreateWindow
 	(
 		szWindowName, _T(szWindowName), dwWindowArg,
 		iWindowPositionX, iWindowPositionY,
@@ -193,9 +195,7 @@ BOOL DXWFCreateWindow(
 		NULL, NULL, phInstance, NULL
 	);
 
-	phWindow = hWnd;
-
-	if (!hWnd)
+	if (!phWindow)
 	{
 		std::cout << "DXWF: Error #2 " << __FUNCTION__ << " () -> Failed to create window\n";
 		return FALSE;
@@ -217,7 +217,7 @@ BOOL DXWFCreateWindow(
 	g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
 	g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
 
-	if (pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
+	if (pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, phWindow, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
 	{
 		pD3D->Release();
 		UnregisterClass(szWindowName, phInstance);
