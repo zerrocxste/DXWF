@@ -19,17 +19,10 @@
 #define DXWF_RENDERER_BEGIN_SCENE_LOOP_ 1
 #define DXWF_RENDERER_RESET_ 2
 
-enum user_dxwf_flags
-{
-	NONE = 0,
-	ENABLE_WINDOW_ALPHA = 1 << 0,
-	ENABLE_WINDOW_BLUR = 1 << 1
-};
-
 typedef void (*callback_wndproc)(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 typedef void (*callback)();
 
-BOOL DXWFInitialization(
+void DXWFInitialization(
 	HINSTANCE hInstance);
 
 void DXWFWndProcCallbacks(
@@ -45,13 +38,11 @@ BOOL DXWFCreateWindow(
 	const int iWindowPositionX, const int iWindowPositionY,
 	const int iWindowSizeX, const int iWindowSizeY,
 	DWORD dwWindowArg,
-	DWORD dwExStyle,
-	DWORD dx_window_flags,
-	int pIcon);
+	int pIcon = 0);
 
 HWND DXWFGetHWND();
 
-LPDIRECT3DDEVICE9& DXWFGetD3DDevice();
+LPDIRECT3DDEVICE9 DXWFGetD3DDevice();
 
 void DXWFRenderLoop();
 
