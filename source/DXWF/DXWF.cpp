@@ -1,10 +1,17 @@
 ﻿// DXWF.cpp : Определяет функции для статической библиотеки.
 //
+
+//DXWF: simple library for creating directx window
+//PASTED by zerrocxste
+//last upd 15.03.21
+//added: show window post frame (fix spermi na ekrane)
+
 #include <iostream>
 #include <Windows.h>
 #include <tchar.h>
 #include <assert.h>
 #include <map>
+#include <time.h>
 
 #include <d3d9.h>
 #pragma comment(lib, "d3d9.lib")
@@ -29,6 +36,22 @@ std::map<int, callback>mRenderCallbacks;
 
 DWORD pDXWindowFlags;
 
+DWORD iMaxFPS;
+
+namespace helpers_func
+{
+	DWORD ColorToARGB(my_color color)
+	{
+		return (DWORD)((color.a << 24) | (color.b << 16) | (color.g << 8) | (color.r));
+	}
+
+	int argbToABGR(int argbColor) {
+		int r = (argbColor >> 16) & 0xFF;
+		int b = argbColor & 0xFF;
+		return (argbColor & 0xFF00FF00) | (b << 16) | r;
+	}
+}
+
 const DWORD WCA_ACCENT_POLICY = 19;
 
 typedef enum 
@@ -37,14 +60,22 @@ typedef enum
 	ACCENT_ENABLE_GRADIENT = 1,
 	ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
 	ACCENT_ENABLE_BLURBEHIND = 3,
-	ACCENT_INVALID_STATE = 4,
+	ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
 	_ACCENT_STATE_SIZE = 0xFFFFFFFF
 } ACCENT_STATE;
+
+typedef enum
+{
+	FLAGS_DISABLED,
+	FILL_WINDOW = 2,
+	FILL_WINDOW_AND_RIGHT_BOTTOM = 4,
+	FILL_ALL = 6
+} ACCENT_FLAGS;
 
 typedef struct 
 {
 	ACCENT_STATE accentState;
-	int accentFlags;
+	ACCENT_FLAGS accentFlags;
 	int gradientColor;
 	int invalidState;
 } DWMACCENTPOLICY;
@@ -66,9 +97,6 @@ fSetWindowCompositionAttribute pfSetWindowCompositionAttribute = NULL;
 
 using fDwmExtendFrameIntoClientArea = HRESULT(WINAPI*)(HWND, const MARGINS*);
 fDwmExtendFrameIntoClientArea pfDwmExtendFrameIntoClientArea = NULL;
-
-using fDwmEnableBlurBehindWindow = HRESULT(WINAPI*)(HWND, const DWM_BLURBEHIND*);
-fDwmEnableBlurBehindWindow pfDwmEnableBlurBehindWindow = NULL;
 
 BOOL is_initialized = FALSE;
 
@@ -115,6 +143,9 @@ void DXWFWndProcCallbacks(DWORD pWndProcAttr, callback_wndproc cCallbackFunction
 	case DXWF_WNDPROC_WM_CHAR_:
 		mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_] = cCallbackFunction;
 		break;
+	case DXWF_WNDPROC_WM_PAINT_:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_PAINT_] = cCallbackFunction;
+		break;
 	default:
 		std::cout << "DXWF: Error #1 " << __FUNCTION__ << " () -> Unknown arg\n";
 		break;
@@ -153,6 +184,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 	switch (message)
 	{
+		case WM_PAINT:
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_PAINT_] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_PAINT_](hWnd, message, wParam, lParam);
+			break;
 		case WM_SIZE:
 			if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
 			{
@@ -213,6 +248,31 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			if (mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_] != nullptr)
 				mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_](hWnd, message, wParam, lParam);
 			break;
+		/*case WM_MOUSEACTIVATE:
+			return MA_NOACTIVATE;
+			break;*/
+		case WM_DWMCOLORIZATIONCOLORCHANGED:
+			if (pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_SYSTEM_COLORIZATION)
+			{
+				DWORD color = 0;
+				BOOL opaque = FALSE;
+
+				HRESULT hr = DwmGetColorizationColor(&color, &opaque);
+
+				if (SUCCEEDED(hr))
+				{
+					color = helpers_func::argbToABGR(color);
+
+					ACCENT_STATE blur_type = (pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_ACRYLIC) ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_ENABLE_BLURBEHIND;
+
+					DWMACCENTPOLICY policy = { blur_type, FILL_WINDOW, color, 0 };
+
+					WINCOMPATTR data = { WCA_ACCENT_POLICY, (WINCOMPATTR_DATA*)&policy, sizeof(WINCOMPATTR_DATA) };
+
+					pfSetWindowCompositionAttribute(hWnd, &data);
+				}
+			}
+			break;
 	}
 
 	return DefWindowProc(hWnd, message, wParam, lParam);
@@ -229,13 +289,13 @@ BOOL DXWFInitialization(
 	if (!user32)
 	{
 		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> Failed to get user32.dll handle\n";
-		return FALSE;
+		return is_initialized;
 	}
 		
 	if (!dwm_api)
 	{
 		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> Failed to get dwmapi.dll handle\n";
-		return FALSE;
+		return is_initialized;
 	}
 
 	auto set_window_composition_attribute_address = (fSetWindowCompositionAttribute)GetProcAddress(user32, "SetWindowCompositionAttribute");
@@ -243,7 +303,7 @@ BOOL DXWFInitialization(
 	if (!set_window_composition_attribute_address)
 	{
 		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> Failed to get SetWindowCompositionAttribute address\n";
-		return FALSE;
+		return is_initialized;
 	}
 
 	auto dwm_extend_frame_into_client_area_address = (fDwmExtendFrameIntoClientArea)GetProcAddress(dwm_api, "DwmExtendFrameIntoClientArea");
@@ -251,38 +311,40 @@ BOOL DXWFInitialization(
 	if (!dwm_extend_frame_into_client_area_address)
 	{
 		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> Failed to get DwmExtendFrameIntoClientArea address\n";
-		return FALSE;
-	}
-
-	auto dwm_enable_blur_behind_window_address = (fDwmEnableBlurBehindWindow)GetProcAddress(dwm_api, "DwmEnableBlurBehindWindow");
-	
-	if (!dwm_enable_blur_behind_window_address)
-	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> Failed to get DwmEnableBlurBehindWindow address\n";
-		return FALSE;
+		return is_initialized;
 	}
 
 	pfSetWindowCompositionAttribute = set_window_composition_attribute_address;
 	pfDwmExtendFrameIntoClientArea = dwm_extend_frame_into_client_area_address;
-	pfDwmEnableBlurBehindWindow = dwm_enable_blur_behind_window_address;
 
 	is_initialized = TRUE;
 
-	return TRUE;
+	return is_initialized;
 }
 
-HRESULT EnableBlurBehind(HWND hwnd)
+HRESULT EnableBlurBehind(HWND hwnd, DWORD window_flags, my_color blur_color)
 {
 	HRESULT hr = S_OK;
 
-	DWM_BLURBEHIND bb = { 0 };
-	bb.dwFlags = DWM_BB_ENABLE;
-	bb.fEnable = true;
-	bb.hRgnBlur = NULL;
-	hr = pfDwmEnableBlurBehindWindow(hwnd, &bb);
+	DWORD color = 0;
+	BOOL opaque = FALSE;
+	
+	if (window_flags & user_dxwf_flags::ENABLE_BLUR_SYSTEM_COLORIZATION)
+	{
+		DwmGetColorizationColor(&color, &opaque);
+		color = helpers_func::argbToABGR(color);
+	}
+	else
+	{
+		color = helpers_func::ColorToARGB(blur_color);
+	}
 
-	DWMACCENTPOLICY policy = { ACCENT_ENABLE_BLURBEHIND, 0, 0, 0 };
+	ACCENT_STATE blur_type = (window_flags & user_dxwf_flags::ENABLE_BLUR_ACRYLIC) ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_ENABLE_BLURBEHIND;
+
+	DWMACCENTPOLICY policy = { blur_type, FILL_WINDOW, color, 0 };
+
 	WINCOMPATTR data = { WCA_ACCENT_POLICY, (WINCOMPATTR_DATA*)&policy, sizeof(WINCOMPATTR_DATA) };
+
 	hr = pfSetWindowCompositionAttribute(hwnd, &data);
 
 	return hr;
@@ -295,6 +357,7 @@ BOOL DXWFCreateWindow(
 	DWORD dwWindowArg,
 	DWORD dwExStyle,
 	DWORD dx_window_flags,
+	my_color blur_color,
 	int pIcon)
 {
 	if (is_initialized == FALSE)
@@ -313,26 +376,27 @@ BOOL DXWFCreateWindow(
 	wcWindowClass.hIcon = LoadIcon(phInstance, MAKEINTRESOURCE(pIcon));
 	wcWindowClass.lpszClassName = szWindowName;
 	wcWindowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wcWindowClass.hbrBackground = (HBRUSH)COLOR_APPWORKSPACE;
+	wcWindowClass.hbrBackground = (HBRUSH)CreateSolidBrush(RGB(0, 0, 0));
 
 	RegisterClass(&wcWindowClass);
 
-	phWindow = CreateWindowEx(
+	phWindow = CreateWindowEx
+	(
 		dwExStyle,
 		szWindowName,
 		_T(szWindowName),
 		dwWindowArg,
 		iWindowPositionX, iWindowPositionY,
-		iWindowSizeX + 16, iWindowSizeY + 20,
-		0,
-		0,
-		0,
-		0);
+		iWindowSizeX, iWindowSizeY,
+		NULL,
+		NULL,
+		NULL,
+		NULL
+	);
 
 	if (pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_ALPHA)
 	{
-		SetLayeredWindowAttributes(phWindow, 0, 1.0f, LWA_ALPHA);
-		SetLayeredWindowAttributes(phWindow, 0, RGB(0, 0, 0), LWA_COLORKEY);
+		SetLayeredWindowAttributes(phWindow, 0, 255, LWA_ALPHA);
 	}
 
 	if (!phWindow)
@@ -350,7 +414,7 @@ BOOL DXWFCreateWindow(
 
 	if (pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_BLUR)
 	{
-		EnableBlurBehind(phWindow);
+		EnableBlurBehind(phWindow, pDXWindowFlags, blur_color);
 	}
 
 	if (pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_ALPHA)
@@ -388,6 +452,12 @@ LPDIRECT3DDEVICE9& DXWFGetD3DDevice()
 	return g_pd3dDevice;
 }
 
+
+void DXWFSetFramerateLimit(const DWORD iMaxFPs)
+{
+	iMaxFPS = iMaxFPs;
+}
+
 void DXWFRenderLoop()
 {
 	if (is_initialized == FALSE)
@@ -398,8 +468,8 @@ void DXWFRenderLoop()
 
 	MSG msg;
 	ZeroMemory(&msg, sizeof(msg));
-	ShowWindow(phWindow, SW_SHOWDEFAULT);
-	UpdateWindow(phWindow);
+
+	static DWORD LastFrameTime = 0;
 
 	while (msg.message != WM_QUIT)
 	{
@@ -412,35 +482,6 @@ void DXWFRenderLoop()
 
 		if (mRenderCallbacks[DXWF_RENDERER_LOOP_] != nullptr)
 			mRenderCallbacks[DXWF_RENDERER_LOOP_]();
-
-		if (pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_ALPHA)
-		{
-			g_pd3dDevice->SetPixelShader(NULL);
-			g_pd3dDevice->SetVertexShader(NULL);
-			g_pd3dDevice->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-			g_pd3dDevice->SetRenderState(D3DRS_LIGHTING, false);
-			g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, false);
-			g_pd3dDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, true);
-			g_pd3dDevice->SetRenderState(D3DRS_ALPHATESTENABLE, false);
-			g_pd3dDevice->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
-			g_pd3dDevice->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-			g_pd3dDevice->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
-			g_pd3dDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, true);
-			g_pd3dDevice->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-			g_pd3dDevice->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-			g_pd3dDevice->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
-			g_pd3dDevice->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-			g_pd3dDevice->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-			g_pd3dDevice->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
-			g_pd3dDevice->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-			g_pd3dDevice->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-		}
-		else
-		{
-			g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, false);
-			g_pd3dDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, false);
-			g_pd3dDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, false);
-		}
 
 		g_pd3dDevice->Clear(0, 0, D3DCLEAR_TARGET, 0, 1.0f, 0);
 
@@ -461,6 +502,20 @@ void DXWFRenderLoop()
 			if (hr == D3DERR_INVALIDCALL)
 				assert(0);
 		}
+
+		static auto show_post_frame = []()
+		{
+			ShowWindow(phWindow, SW_SHOWDEFAULT);
+			UpdateWindow(phWindow);
+			return true;
+		}();
+
+		DWORD currentTime = timeGetTime();
+		if ((currentTime - LastFrameTime) < (1000 / iMaxFPS))
+		{
+			Sleep(currentTime - LastFrameTime);
+		}
+		LastFrameTime = currentTime;
 	}
 }
 

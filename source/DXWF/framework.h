@@ -14,6 +14,7 @@
 #define DXWF_WNDPROC_WM_KEYDOWN_ 9
 #define DXWF_WNDPROC_WM_KEYUP_ 10
 #define DXWF_WNDPROC_WM_CHAR_ 11
+#define DXWF_WNDPROC_WM_PAINT_ 12
 
 #define DXWF_RENDERER_LOOP_ 0
 #define DXWF_RENDERER_BEGIN_SCENE_LOOP_ 1
@@ -23,10 +24,18 @@ enum user_dxwf_flags
 {
 	NONE = 0,
 	ENABLE_WINDOW_ALPHA = 1 << 0,
-	ENABLE_WINDOW_BLUR = 1 << 1
+	ENABLE_WINDOW_BLUR = 1 << 1,
+	ENABLE_BLUR_ACRYLIC = 1 << 2,
+	ENABLE_BLUR_SYSTEM_COLORIZATION = 1 << 3
 };
 
-typedef void (*callback_wndproc)(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+struct my_color
+{
+	my_color(int R, int G, int B, int A) : r(R), g(G), b(B), a(A) {};
+	int r, g, b, a;
+};
+
+typedef void (*callback_wndproc)(HWND, UINT, WPARAM, LPARAM);
 typedef void (*callback)();
 
 BOOL DXWFInitialization(
@@ -47,11 +56,15 @@ BOOL DXWFCreateWindow(
 	DWORD dwWindowArg,
 	DWORD dwExStyle,
 	DWORD dx_window_flags,
+	my_color blur_color,
 	int pIcon);
 
 HWND DXWFGetHWND();
 
 LPDIRECT3DDEVICE9& DXWFGetD3DDevice();
+
+void DXWFSetFramerateLimit(
+	const DWORD iMaxFPs);
 
 void DXWFRenderLoop();
 
