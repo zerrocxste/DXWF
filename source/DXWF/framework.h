@@ -31,6 +31,7 @@ enum user_dxwf_flags
 
 struct my_color
 {
+	my_color() {};
 	my_color(int R, int G, int B, int A) : r(R), g(G), b(B), a(A) {};
 	int r, g, b, a;
 };
@@ -61,7 +62,18 @@ BOOL DXWFCreateWindow(
 
 HWND DXWFGetHWND();
 
-LPDIRECT3DDEVICE9& DXWFGetD3DDevice();
+LPDIRECT3DDEVICE9 DXWFGetD3DDevice();
+
+void DXWFSetWindowVisibleState(bool show);
+
+void DXWFSetWindowPos(int x, int y);
+void DXWFSetWindowSize(int x, int y);
+
+void DXWFEnableTransparentWindow();
+void DXWFDisableTransparentWindow();
+
+void DXWFEnableBlur(DWORD blur_flags, my_color blur_color);
+void DXWFDisableBlur();
 
 void DXWFSetFramerateLimit(
 	const DWORD iMaxFPs);

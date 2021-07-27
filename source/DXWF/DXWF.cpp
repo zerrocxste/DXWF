@@ -30,22 +30,23 @@ LPDIRECT3D9 pD3D = NULL;
 std::string pszWindowName;
 HWND phWindow;
 HINSTANCE phInstance;
+my_color blur_col;
 
 std::map<int, callback_wndproc>mWndProcCallbacks;
 std::map<int, callback>mRenderCallbacks;
 
 DWORD pDXWindowFlags;
 
-DWORD iMaxFPS;
+DWORD iMaxFPS = NULL;
 
 namespace helpers_func
 {
-	DWORD ColorToARGB(my_color color)
+	DWORD color_to_argb(my_color color)
 	{
 		return (DWORD)((color.a << 24) | (color.b << 16) | (color.g << 8) | (color.r));
 	}
 
-	int argbToABGR(int argbColor) {
+	int argb_to_abgr(int argbColor) {
 		int r = (argbColor >> 16) & 0xFF;
 		int b = argbColor & 0xFF;
 		return (argbColor & 0xFF00FF00) | (b << 16) | r;
@@ -248,9 +249,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			if (mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_] != nullptr)
 				mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_](hWnd, message, wParam, lParam);
 			break;
-		/*case WM_MOUSEACTIVATE:
-			return MA_NOACTIVATE;
-			break;*/
 		case WM_DWMCOLORIZATIONCOLORCHANGED:
 			if (pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_SYSTEM_COLORIZATION)
 			{
@@ -261,7 +259,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 				if (SUCCEEDED(hr))
 				{
-					color = helpers_func::argbToABGR(color);
+					color = helpers_func::argb_to_abgr(color);
 
 					ACCENT_STATE blur_type = (pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_ACRYLIC) ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_ENABLE_BLURBEHIND;
 
@@ -322,32 +320,80 @@ BOOL DXWFInitialization(
 	return is_initialized;
 }
 
-HRESULT EnableBlurBehind(HWND hwnd, DWORD window_flags, my_color blur_color)
+HRESULT EnableBlurBehind(HWND hwnd, bool enable_blur, bool enable_system_colorization, bool enable_acrylic, my_color blur_color)
 {
-	HRESULT hr = S_OK;
-
-	DWORD color = 0;
-	BOOL opaque = FALSE;
-	
-	if (window_flags & user_dxwf_flags::ENABLE_BLUR_SYSTEM_COLORIZATION)
+	if (enable_blur || enable_acrylic)
 	{
-		DwmGetColorizationColor(&color, &opaque);
-		color = helpers_func::argbToABGR(color);
+		HRESULT hr = S_OK;
+
+		DWORD color = 0;
+		BOOL opaque = FALSE;
+
+		if (enable_system_colorization)
+		{
+			DwmGetColorizationColor(&color, &opaque);
+			color = helpers_func::argb_to_abgr(color);
+		}
+		else
+		{
+			color = helpers_func::color_to_argb(blur_color);
+		}
+
+		ACCENT_STATE blur_type = enable_acrylic ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_ENABLE_BLURBEHIND;
+
+		DWMACCENTPOLICY policy = { blur_type, FILL_WINDOW, color, 0 };
+
+		WINCOMPATTR data = { WCA_ACCENT_POLICY, (WINCOMPATTR_DATA*)&policy, sizeof(WINCOMPATTR_DATA) };
+
+		hr = pfSetWindowCompositionAttribute(hwnd, &data);
+
+		return hr;
 	}
-	else
-	{
-		color = helpers_func::ColorToARGB(blur_color);
-	}
+	return S_FALSE;
+}
 
-	ACCENT_STATE blur_type = (window_flags & user_dxwf_flags::ENABLE_BLUR_ACRYLIC) ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_ENABLE_BLURBEHIND;
+void DXWFSetWindowVisibleState(bool show)
+{
+	show ? ShowWindow(phWindow, SW_SHOW) : ShowWindow(phWindow, SW_MINIMIZE);
+}
 
-	DWMACCENTPOLICY policy = { blur_type, FILL_WINDOW, color, 0 };
+void DXWFSetWindowPos(int x, int y)
+{
+	SetWindowPos(phWindow, NULL, x, y, 0, 0, SWP_NOSIZE);
+}
 
+void DXWFSetWindowSize(int x, int y)
+{
+	SetWindowPos(phWindow, NULL, 0, 0, x, y, SWP_NOMOVE);
+}
+
+void DXWFEnableTransparentWindow()
+{
+	SetLayeredWindowAttributes(phWindow, 0, 255, LWA_ALPHA);
+	MARGINS margins = { -1 };
+	pfDwmExtendFrameIntoClientArea(phWindow, &margins);
+}
+
+void DXWFDisableTransparentWindow()
+{
+	SetLayeredWindowAttributes(phWindow, 0, 0, LWA_ALPHA);
+}
+
+void DXWFEnableBlur(DWORD blur_flags, my_color blur_color)
+{
+	if (EnableBlurBehind(phWindow,
+		blur_flags & user_dxwf_flags::ENABLE_WINDOW_BLUR,
+		blur_flags & user_dxwf_flags::ENABLE_BLUR_SYSTEM_COLORIZATION,
+		blur_flags & user_dxwf_flags::ENABLE_BLUR_ACRYLIC,
+		blur_color) == S_OK)
+		DXWFEnableTransparentWindow();
+}
+
+void DXWFDisableBlur()
+{
+	DWMACCENTPOLICY policy = { ACCENT_DISABLED, FILL_WINDOW, 0, 0 };
 	WINCOMPATTR data = { WCA_ACCENT_POLICY, (WINCOMPATTR_DATA*)&policy, sizeof(WINCOMPATTR_DATA) };
-
-	hr = pfSetWindowCompositionAttribute(hwnd, &data);
-
-	return hr;
+	pfSetWindowCompositionAttribute(phWindow, &data);
 }
 
 BOOL DXWFCreateWindow(
@@ -368,6 +414,7 @@ BOOL DXWFCreateWindow(
 
 	pDXWindowFlags = dx_window_flags;
 	pszWindowName = szWindowName;
+	blur_col = blur_color;
 
 	WNDCLASS wcWindowClass = { 0 };
 	wcWindowClass.lpfnWndProc = (WNDPROC)WndProc;
@@ -394,11 +441,6 @@ BOOL DXWFCreateWindow(
 		NULL
 	);
 
-	if (pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_ALPHA)
-	{
-		SetLayeredWindowAttributes(phWindow, 0, 255, LWA_ALPHA);
-	}
-
 	if (!phWindow)
 	{
 		std::cout << "DXWF: Error #2 " << __FUNCTION__ << " () -> Failed to create window\n";
@@ -412,16 +454,14 @@ BOOL DXWFCreateWindow(
 		return FALSE;
 	}
 
-	if (pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_BLUR)
-	{
-		EnableBlurBehind(phWindow, pDXWindowFlags, blur_color);
-	}
+	EnableBlurBehind(phWindow, 
+		pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_BLUR,
+		pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_SYSTEM_COLORIZATION, 
+		pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_ACRYLIC, 
+		blur_col);
 
 	if (pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_ALPHA)
-	{
-		MARGINS margins = { -1 };
-		pfDwmExtendFrameIntoClientArea(phWindow, &margins);
-	}
+		DXWFEnableTransparentWindow();
 	
 	ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
 	g_d3dpp.Windowed = TRUE;
@@ -431,7 +471,7 @@ BOOL DXWFCreateWindow(
 	g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
 	g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
 
-	if (pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, phWindow, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
+	if (pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, phWindow, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
 	{
 		pD3D->Release();
 		UnregisterClass(szWindowName, phInstance);
@@ -447,11 +487,10 @@ HWND DXWFGetHWND()
 	return phWindow;
 }
 
-LPDIRECT3DDEVICE9& DXWFGetD3DDevice()
+LPDIRECT3DDEVICE9 DXWFGetD3DDevice()
 {
 	return g_pd3dDevice;
 }
-
 
 void DXWFSetFramerateLimit(const DWORD iMaxFPs)
 {
@@ -466,10 +505,10 @@ void DXWFRenderLoop()
 		return;
 	}
 
+	static DWORD LastFrameTime = 0;
+
 	MSG msg;
 	ZeroMemory(&msg, sizeof(msg));
-
-	static DWORD LastFrameTime = 0;
 
 	while (msg.message != WM_QUIT)
 	{
@@ -510,12 +549,15 @@ void DXWFRenderLoop()
 			return true;
 		}();
 
-		DWORD currentTime = timeGetTime();
-		if ((currentTime - LastFrameTime) < (1000 / iMaxFPS))
+		if ((int)iMaxFPS != 0)
 		{
-			Sleep(currentTime - LastFrameTime);
+			DWORD currentTime = timeGetTime();
+			if ((currentTime - LastFrameTime) < (1000 / iMaxFPS))
+			{
+				Sleep(currentTime - LastFrameTime);
+			}
+			LastFrameTime = currentTime;
 		}
-		LastFrameTime = currentTime;
 	}
 }
 
@@ -529,7 +571,9 @@ void DXWFTerminate()
 
 	if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
 	if (pD3D) { pD3D->Release(); pD3D = NULL; }
+	pDXWindowFlags = NULL;
 	DestroyWindow(phWindow);
 	UnregisterClass(pszWindowName.c_str(), phInstance);
+	phWindow = NULL;
 }
 
