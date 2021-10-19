@@ -320,34 +320,50 @@ BOOL DXWFInitialization(
 	return is_initialized;
 }
 
+HRESULT EnableBlurWin7(HWND hwnd)
+{
+	HRESULT hr = S_OK;
+	DWM_BLURBEHIND bb = { 0 };
+	bb.dwFlags = DWM_BB_ENABLE;
+	bb.fEnable = true;
+	bb.hRgnBlur = NULL;
+	hr = DwmEnableBlurBehindWindow(hwnd, &bb);
+	MARGINS margins = { -1 };
+	hr = DwmExtendFrameIntoClientArea(hwnd, &margins);
+	return hr;
+}
+
+HRESULT EnableBlurWin10(HWND hwnd, bool enable_system_colorization, bool enable_acrylic, my_color blur_color)
+{
+	DWORD color = 0;
+	BOOL opaque = FALSE;
+
+	if (enable_system_colorization)
+	{
+		DwmGetColorizationColor(&color, &opaque);
+		color = helpers_func::argb_to_abgr(color);
+	}
+	else
+		color = helpers_func::color_to_argb(blur_color);
+
+	ACCENT_STATE blur_type = enable_acrylic ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_ENABLE_BLURBEHIND;
+
+	DWMACCENTPOLICY policy = { blur_type, FILL_WINDOW, color, 0 };
+
+	WINCOMPATTR data = { WCA_ACCENT_POLICY, (WINCOMPATTR_DATA*)&policy, sizeof(WINCOMPATTR_DATA) };
+
+	return pfSetWindowCompositionAttribute(hwnd, &data);
+}
+
 HRESULT EnableBlurBehind(HWND hwnd, bool enable_blur, bool enable_system_colorization, bool enable_acrylic, my_color blur_color)
 {
 	if (enable_blur || enable_acrylic)
 	{
-		HRESULT hr = S_OK;
+		EnableBlurWin7(hwnd);
 
-		DWORD color = 0;
-		BOOL opaque = FALSE;
+		EnableBlurWin10(hwnd, enable_system_colorization, enable_acrylic, blur_color);
 
-		if (enable_system_colorization)
-		{
-			DwmGetColorizationColor(&color, &opaque);
-			color = helpers_func::argb_to_abgr(color);
-		}
-		else
-		{
-			color = helpers_func::color_to_argb(blur_color);
-		}
-
-		ACCENT_STATE blur_type = enable_acrylic ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_ENABLE_BLURBEHIND;
-
-		DWMACCENTPOLICY policy = { blur_type, FILL_WINDOW, color, 0 };
-
-		WINCOMPATTR data = { WCA_ACCENT_POLICY, (WINCOMPATTR_DATA*)&policy, sizeof(WINCOMPATTR_DATA) };
-
-		hr = pfSetWindowCompositionAttribute(hwnd, &data);
-
-		return hr;
+		return S_OK;
 	}
 	return S_FALSE;
 }
@@ -355,6 +371,11 @@ HRESULT EnableBlurBehind(HWND hwnd, bool enable_blur, bool enable_system_coloriz
 void DXWFSetWindowVisibleState(bool show)
 {
 	show ? ShowWindow(phWindow, SW_SHOW) : ShowWindow(phWindow, SW_MINIMIZE);
+}
+
+void DXWFSetWindowHideState(bool show)
+{
+	show ? ShowWindow(phWindow, SW_SHOW) : ShowWindow(phWindow, SW_HIDE);
 }
 
 void DXWFSetWindowPos(int x, int y)
@@ -471,11 +492,13 @@ BOOL DXWFCreateWindow(
 	g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
 	g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
 
-	if (pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, phWindow, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
+	HRESULT ret = pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, phWindow, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice);
+
+	if (ret < 0)
 	{
 		pD3D->Release();
 		UnregisterClass(szWindowName, phInstance);
-		std::cout << "DXWF: Error #4 " << __FUNCTION__ << " () -> Failed to create device\n";
+		std::cout << "DXWF: Error #4 " << __FUNCTION__ << " () -> Failed to create device. CreateDevice code: " << std::hex << ret << std::dec << std::endl;
 		return FALSE;
 	}
 

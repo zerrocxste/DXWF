@@ -65,6 +65,7 @@ HWND DXWFGetHWND();
 LPDIRECT3DDEVICE9 DXWFGetD3DDevice();
 
 void DXWFSetWindowVisibleState(bool show);
+void DXWFSetWindowHideState(bool show);
 
 void DXWFSetWindowPos(int x, int y);
 void DXWFSetWindowSize(int x, int y);
