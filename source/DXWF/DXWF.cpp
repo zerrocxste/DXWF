@@ -12,6 +12,7 @@
 #include <assert.h>
 #include <map>
 #include <time.h>
+#include <windowsx.h>
 
 #include <d3d9.h>
 #pragma comment(lib, "d3d9.lib")
@@ -27,21 +28,23 @@ LPDIRECT3DDEVICE9        g_pd3dDevice = NULL;
 D3DPRESENT_PARAMETERS    g_d3dpp{};
 LPDIRECT3D9 pD3D = NULL;
 
-std::string pszWindowName;
+std::string szWindowName;
 HWND phWindow;
 HINSTANCE phInstance;
-my_color blur_col;
+dxwf_color blur_col;
 
 std::map<int, callback_wndproc>mWndProcCallbacks;
 std::map<int, callback>mRenderCallbacks;
 
-DWORD pDXWindowFlags;
-
+DWORD UserWindowFlags;
+int iTitleBarYSize = 0;
+int iMaxDontTrackLeftTopSize = 0;
+int iMaxDontTrackRightTopSize = 0;
 DWORD iMaxFPS = NULL;
 
 namespace helpers_func
 {
-	DWORD color_to_argb(my_color color)
+	DWORD color_to_argb(dxwf_color color)
 	{
 		return (DWORD)((color.a << 24) | (color.b << 16) | (color.g << 8) | (color.r));
 	}
@@ -101,93 +104,110 @@ fDwmExtendFrameIntoClientArea pfDwmExtendFrameIntoClientArea = NULL;
 
 BOOL is_initialized = FALSE;
 
-void DXWFWndProcCallbacks(DWORD pWndProcAttr, callback_wndproc cCallbackFunction)
+void DrawScene()
 {
-	if (is_initialized == FALSE)
+	if (mRenderCallbacks[DXWF_RENDERER_LOOP] != nullptr)
+		mRenderCallbacks[DXWF_RENDERER_LOOP]();
+
+	g_pd3dDevice->Clear(0, 0, D3DCLEAR_TARGET, 0, 1.0f, 0);
+
+	if (g_pd3dDevice->BeginScene() >= 0)
 	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> DXWF not initialized\n";
-		return;
+		if (mRenderCallbacks[DXWF_RENDERER_BEGIN_SCENE_LOOP] != nullptr)
+			mRenderCallbacks[DXWF_RENDERER_BEGIN_SCENE_LOOP]();
+		g_pd3dDevice->EndScene();
 	}
 
-	switch (pWndProcAttr)
+	if (g_pd3dDevice->Present(NULL, NULL, NULL, NULL) == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
 	{
-	case DXWF_WNDPROC_WNDPROCHANDLER_:
-		mWndProcCallbacks[DXWF_WNDPROC_WNDPROCHANDLER_] = cCallbackFunction;
+		if (mRenderCallbacks[DXWF_RENDERER_RESET] != nullptr)
+			mRenderCallbacks[DXWF_RENDERER_RESET]();
+		HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
+		if (hr == D3DERR_INVALIDCALL)
+			assert(0);
+	}
+}
+
+void DXWFWndProcCallbacks(DXWF_WNDPROC_CALLBACKS WndProcCallbackNum, callback_wndproc cCallbackFunction)
+{
+	if (is_initialized == FALSE)
+		return;
+
+	switch (WndProcCallbackNum)
+	{
+	case DXWF_WNDPROC_WNDPROCHANDLER:
+		mWndProcCallbacks[DXWF_WNDPROC_WNDPROCHANDLER] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_SIZE_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_SIZE:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_MOUSEMOVE_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_MOUSEMOVE:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_LBUTTONDOWN_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_LBUTTONDOWN:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_LBUTTONUP_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_LBUTTONUP:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_SYSKEYDOWN_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYDOWN_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_SYSKEYDOWN:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYDOWN] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_SYSCHAR_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_SYSCHAR_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_SYSCHAR:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_SYSCHAR] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_SYSKEYUP_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYUP_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_SYSKEYUP:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYUP] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_KEYDOWN_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_KEYDOWN:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_KEYUP_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_KEYUP:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_CHAR_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_CHAR:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR] = cCallbackFunction;
 		break;
-	case DXWF_WNDPROC_WM_PAINT_:
-		mWndProcCallbacks[DXWF_WNDPROC_WM_PAINT_] = cCallbackFunction;
+	case DXWF_WNDPROC_WM_PAINT:
+		mWndProcCallbacks[DXWF_WNDPROC_WM_PAINT] = cCallbackFunction;
 		break;
 	default:
-		std::cout << "DXWF: Error #1 " << __FUNCTION__ << " () -> Unknown arg\n";
 		break;
 	}
 }
 
-void DXWFRendererCallbacks(DWORD pWndProcAttr, callback cCallbackFunction)
+void DXWFRendererCallbacks(DXWF_RENDER_CALLBACKS RenderCallbackNum, callback cCallbackFunction)
 {
 	if (is_initialized == FALSE)
-	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> DXWF not initialized\n";
 		return;
-	}
 
-	switch (pWndProcAttr)
+	switch (RenderCallbackNum)
 	{
-	case DXWF_RENDERER_LOOP_:
-		mRenderCallbacks[DXWF_RENDERER_LOOP_] = cCallbackFunction;
+	case DXWF_RENDERER_LOOP:
+		mRenderCallbacks[DXWF_RENDERER_LOOP] = cCallbackFunction;
 		break;
-	case DXWF_RENDERER_BEGIN_SCENE_LOOP_:
-		mRenderCallbacks[DXWF_RENDERER_BEGIN_SCENE_LOOP_] = cCallbackFunction;
+	case DXWF_RENDERER_BEGIN_SCENE_LOOP:
+		mRenderCallbacks[DXWF_RENDERER_BEGIN_SCENE_LOOP] = cCallbackFunction;
 		break;
-	case DXWF_RENDERER_RESET_:
-		mRenderCallbacks[DXWF_RENDERER_RESET_] = cCallbackFunction;
+	case DXWF_RENDERER_RESET:
+		mRenderCallbacks[DXWF_RENDERER_RESET] = cCallbackFunction;
 		break;
 	default:
-		std::cout << "DXWF: Error #1 " << __FUNCTION__ << " () -> Unknown arg\n";
 		break;
 	}
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	if (mWndProcCallbacks[DXWF_WNDPROC_WNDPROCHANDLER_] != nullptr)
-		mWndProcCallbacks[DXWF_WNDPROC_WNDPROCHANDLER_](hWnd, message, wParam, lParam);
+	if (mWndProcCallbacks[DXWF_WNDPROC_WNDPROCHANDLER] != nullptr)
+		mWndProcCallbacks[DXWF_WNDPROC_WNDPROCHANDLER](hWnd, message, wParam, lParam);
 
 	switch (message)
 	{
 		case WM_PAINT:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_PAINT_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_PAINT_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_PAINT] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_PAINT](hWnd, message, wParam, lParam);
+			DrawScene();
 			break;
 		case WM_SIZE:
 			if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
@@ -195,15 +215,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				g_d3dpp.BackBufferWidth = LOWORD(lParam);
 				g_d3dpp.BackBufferHeight = HIWORD(lParam);
 
-				if (mRenderCallbacks[DXWF_RENDERER_RESET_] != nullptr)
-					mRenderCallbacks[DXWF_RENDERER_RESET_]();
+				if (mRenderCallbacks[DXWF_RENDERER_RESET] != nullptr)
+					mRenderCallbacks[DXWF_RENDERER_RESET]();
 
 				HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
 				if (hr == D3DERR_INVALIDCALL)
 					assert(0);
 
-				if (mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE_] != nullptr)
-					mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE_](hWnd, message, wParam, lParam);
+				if (mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE] != nullptr)
+					mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE](hWnd, message, wParam, lParam);
 			}
 			return 0;
 		case WM_SYSCOMMAND:
@@ -214,43 +234,43 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			PostQuitMessage(0);
 			return 0;
 		case WM_MOUSEMOVE:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_MOUSEMOVE](hWnd, message, wParam, lParam);
 			break;	
 		case WM_LBUTTONDOWN:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONDOWN](hWnd, message, wParam, lParam);
 			break;
 		case WM_LBUTTONUP:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_LBUTTONUP](hWnd, message, wParam, lParam);
 			break;
 		case WM_SYSKEYDOWN:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYDOWN_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYDOWN_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYDOWN] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYDOWN](hWnd, message, wParam, lParam);
 			break;
 		case WM_SYSCHAR:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SYSCHAR_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_SYSCHAR_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SYSCHAR] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_SYSCHAR](hWnd, message, wParam, lParam);
 			break;
 		case WM_SYSKEYUP:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYUP_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYUP_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYUP] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_SYSKEYUP](hWnd, message, wParam, lParam);
 			break;
 		case WM_KEYDOWN:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_KEYDOWN](hWnd, message, wParam, lParam);
 			break;
 		case WM_KEYUP:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_KEYUP](hWnd, message, wParam, lParam);
 			break;
 		case WM_CHAR:
-			if (mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_] != nullptr)
-				mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR_](hWnd, message, wParam, lParam);
+			if (mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR] != nullptr)
+				mWndProcCallbacks[DXWF_WNDPROC_WM_CHAR](hWnd, message, wParam, lParam);
 			break;
 		case WM_DWMCOLORIZATIONCOLORCHANGED:
-			if (pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_SYSTEM_COLORIZATION)
+			if (UserWindowFlags & USER_DXWF_FLAGS::ENABLE_BLUR_SYSTEM_COLORIZATION)
 			{
 				DWORD color = 0;
 				BOOL opaque = FALSE;
@@ -261,13 +281,76 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				{
 					color = helpers_func::argb_to_abgr(color);
 
-					ACCENT_STATE blur_type = (pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_ACRYLIC) ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_ENABLE_BLURBEHIND;
+					if (blur_col.a != 0)
+					{
+						std::uint8_t* color_arr = (std::uint8_t*)&color;
+						color_arr[3] = blur_col.a;
+					}
+
+					ACCENT_STATE blur_type = (UserWindowFlags & USER_DXWF_FLAGS::ENABLE_BLUR_ACRYLIC) ? ACCENT_ENABLE_ACRYLICBLURBEHIND : ACCENT_ENABLE_BLURBEHIND;
 
 					DWMACCENTPOLICY policy = { blur_type, FILL_WINDOW, color, 0 };
 
 					WINCOMPATTR data = { WCA_ACCENT_POLICY, (WINCOMPATTR_DATA*)&policy, sizeof(WINCOMPATTR_DATA) };
 
 					pfSetWindowCompositionAttribute(hWnd, &data);
+				}
+			}
+			break;
+		case WM_NCHITTEST:
+			if (UserWindowFlags & ENABLE_POPUP_RESIZE)
+			{
+				POINT cursor{};
+				cursor.x = GET_X_LPARAM(lParam);
+				cursor.y = GET_Y_LPARAM(lParam);
+
+				const POINT border{
+					::GetSystemMetrics(SM_CXFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER),
+					::GetSystemMetrics(SM_CYFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER)
+				};
+				RECT window;
+				if (!::GetWindowRect(phWindow, &window)) {
+					return HTNOWHERE;
+				}
+
+				enum region_mask {
+					client = 0b0000,
+					left = 0b0001,
+					right = 0b0010,
+					top = 0b0100,
+					bottom = 0b1000,
+				};
+
+				const auto result =
+					left * (cursor.x < (window.left + border.x)) |
+					right * (cursor.x >= (window.right - border.x)) |
+					top * (cursor.y < (window.top + border.y)) |
+					bottom * (cursor.y >= (window.bottom - border.y));
+
+				auto IsDeadZoneLeftTop = iMaxDontTrackLeftTopSize > 0 ? cursor.x - window.left >= iMaxDontTrackLeftTopSize : true;
+				auto IsDeadZoneRightTop = iMaxDontTrackRightTopSize > 0 ? abs(cursor.x - window.right) >= iMaxDontTrackRightTopSize : true;
+
+				if (IsDeadZoneLeftTop && IsDeadZoneRightTop && iTitleBarYSize > 0 && cursor.y - window.top <= iTitleBarYSize)
+					return HTCAPTION;
+
+				switch (result) {
+				case left: 
+					return HTLEFT;
+				case right:
+					return HTRIGHT;
+				case top: 
+					return HTTOP;
+				case bottom: 
+					return HTBOTTOM;
+				case top | left:
+					return HTTOPLEFT;
+				case top | right: 
+					return HTTOPRIGHT;
+				case bottom | left:
+					return HTBOTTOMLEFT;
+				case bottom | right:
+					return HTBOTTOMRIGHT;
+				default: break;
 				}
 			}
 			break;
@@ -285,32 +368,20 @@ BOOL DXWFInitialization(
 	auto dwm_api = GetModuleHandle("Dwmapi.dll");
 
 	if (!user32)
-	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> Failed to get user32.dll handle\n";
 		return is_initialized;
-	}
 		
 	if (!dwm_api)
-	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> Failed to get dwmapi.dll handle\n";
 		return is_initialized;
-	}
 
 	auto set_window_composition_attribute_address = (fSetWindowCompositionAttribute)GetProcAddress(user32, "SetWindowCompositionAttribute");
 
 	if (!set_window_composition_attribute_address)
-	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> Failed to get SetWindowCompositionAttribute address\n";
 		return is_initialized;
-	}
 
 	auto dwm_extend_frame_into_client_area_address = (fDwmExtendFrameIntoClientArea)GetProcAddress(dwm_api, "DwmExtendFrameIntoClientArea");
 
 	if (!dwm_extend_frame_into_client_area_address)
-	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> Failed to get DwmExtendFrameIntoClientArea address\n";
 		return is_initialized;
-	}
 
 	pfSetWindowCompositionAttribute = set_window_composition_attribute_address;
 	pfDwmExtendFrameIntoClientArea = dwm_extend_frame_into_client_area_address;
@@ -333,7 +404,7 @@ HRESULT EnableBlurWin7(HWND hwnd)
 	return hr;
 }
 
-HRESULT EnableBlurWin10(HWND hwnd, bool enable_system_colorization, bool enable_acrylic, my_color blur_color)
+HRESULT EnableBlurWin10(HWND hwnd, bool enable_system_colorization, bool enable_acrylic, dxwf_color blur_color)
 {
 	DWORD color = 0;
 	BOOL opaque = FALSE;
@@ -342,6 +413,12 @@ HRESULT EnableBlurWin10(HWND hwnd, bool enable_system_colorization, bool enable_
 	{
 		DwmGetColorizationColor(&color, &opaque);
 		color = helpers_func::argb_to_abgr(color);
+		
+		if (blur_color.a != 0)
+		{
+			std::uint8_t* color_arr = (std::uint8_t*)&color;
+			color_arr[3] = blur_color.a;
+		}
 	}
 	else
 		color = helpers_func::color_to_argb(blur_color);
@@ -355,7 +432,7 @@ HRESULT EnableBlurWin10(HWND hwnd, bool enable_system_colorization, bool enable_
 	return pfSetWindowCompositionAttribute(hwnd, &data);
 }
 
-HRESULT EnableBlurBehind(HWND hwnd, bool enable_blur, bool enable_system_colorization, bool enable_acrylic, my_color blur_color)
+HRESULT EnableBlurBehind(HWND hwnd, bool enable_blur, bool enable_system_colorization, bool enable_acrylic, dxwf_color blur_color)
 {
 	if (enable_blur || enable_acrylic)
 	{
@@ -400,12 +477,12 @@ void DXWFDisableTransparentWindow()
 	SetLayeredWindowAttributes(phWindow, 0, 0, LWA_ALPHA);
 }
 
-void DXWFEnableBlur(DWORD blur_flags, my_color blur_color)
+void DXWFEnableBlur(DWORD blur_flags, dxwf_color blur_color)
 {
 	if (EnableBlurBehind(phWindow,
-		blur_flags & user_dxwf_flags::ENABLE_WINDOW_BLUR,
-		blur_flags & user_dxwf_flags::ENABLE_BLUR_SYSTEM_COLORIZATION,
-		blur_flags & user_dxwf_flags::ENABLE_BLUR_ACRYLIC,
+		blur_flags & USER_DXWF_FLAGS::ENABLE_WINDOW_BLUR,
+		blur_flags & USER_DXWF_FLAGS::ENABLE_BLUR_SYSTEM_COLORIZATION,
+		blur_flags & USER_DXWF_FLAGS::ENABLE_BLUR_ACRYLIC,
 		blur_color) == S_OK)
 		DXWFEnableTransparentWindow();
 }
@@ -417,32 +494,50 @@ void DXWFDisableBlur()
 	pfSetWindowCompositionAttribute(phWindow, &data);
 }
 
+void DXWFSetBlurColor(dxwf_color blur_color)
+{
+	if (!phWindow)
+	{
+		blur_col = blur_color;
+		return;
+	}
+
+	DXWFEnableBlur(UserWindowFlags, blur_color);
+}
+
+void DXWFSetDragTitlebarYSize(int YSize)
+{
+	iTitleBarYSize = YSize;
+}
+
+void DXWFSetDragDeadZoneXOffset(int iTopLeftDeadZone, int iTopRightDeadZone)
+{
+	iMaxDontTrackLeftTopSize = iTopLeftDeadZone;
+	iMaxDontTrackRightTopSize = iTopRightDeadZone;
+}
+
 BOOL DXWFCreateWindow(
-	LPCSTR szWindowName,
+	LPCSTR pszWindowName,
 	const int iWindowPositionX, const int iWindowPositionY,
 	const int iWindowSizeX, const int iWindowSizeY,
 	DWORD dwWindowArg,
 	DWORD dwExStyle,
 	DWORD dx_window_flags,
-	my_color blur_color,
 	int pIcon)
 {
 	if (is_initialized == FALSE)
-	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> DXWF not initialized\n";
 		return FALSE;
-	}
 
-	pDXWindowFlags = dx_window_flags;
-	pszWindowName = szWindowName;
-	blur_col = blur_color;
+	UserWindowFlags = dx_window_flags;
+	szWindowName = pszWindowName;
+
 
 	WNDCLASS wcWindowClass = { 0 };
 	wcWindowClass.lpfnWndProc = (WNDPROC)WndProc;
 	wcWindowClass.style = CS_HREDRAW | CS_VREDRAW;
 	wcWindowClass.hInstance = phInstance;
 	wcWindowClass.hIcon = LoadIcon(phInstance, MAKEINTRESOURCE(pIcon));
-	wcWindowClass.lpszClassName = szWindowName;
+	wcWindowClass.lpszClassName = pszWindowName;
 	wcWindowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
 	wcWindowClass.hbrBackground = (HBRUSH)CreateSolidBrush(RGB(0, 0, 0));
 
@@ -451,8 +546,8 @@ BOOL DXWFCreateWindow(
 	phWindow = CreateWindowEx
 	(
 		dwExStyle,
-		szWindowName,
-		_T(szWindowName),
+		pszWindowName,
+		_T(pszWindowName),
 		dwWindowArg,
 		iWindowPositionX, iWindowPositionY,
 		iWindowSizeX, iWindowSizeY,
@@ -463,31 +558,27 @@ BOOL DXWFCreateWindow(
 	);
 
 	if (!phWindow)
-	{
-		std::cout << "DXWF: Error #2 " << __FUNCTION__ << " () -> Failed to create window\n";
 		return FALSE;
-	}
 
 	if ((pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
 	{
-		std::cout << "DXWF: Error #3 " << __FUNCTION__ << " () -> Failed to create d3d context\n";
-		UnregisterClass(szWindowName, phInstance);
+		UnregisterClass(pszWindowName, phInstance);
 		return FALSE;
 	}
 
 	EnableBlurBehind(phWindow, 
-		pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_BLUR,
-		pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_SYSTEM_COLORIZATION, 
-		pDXWindowFlags & user_dxwf_flags::ENABLE_BLUR_ACRYLIC, 
+		UserWindowFlags & ENABLE_WINDOW_BLUR,
+		UserWindowFlags & ENABLE_BLUR_SYSTEM_COLORIZATION,
+		UserWindowFlags & ENABLE_BLUR_ACRYLIC,
 		blur_col);
 
-	if (pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_ALPHA)
+	if (UserWindowFlags & ENABLE_WINDOW_ALPHA)
 		DXWFEnableTransparentWindow();
 	
 	ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
 	g_d3dpp.Windowed = TRUE;
 	g_d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
-	g_d3dpp.BackBufferFormat = (pDXWindowFlags & user_dxwf_flags::ENABLE_WINDOW_ALPHA) ? D3DFMT_A8R8G8B8 : D3DFMT_UNKNOWN;
+	g_d3dpp.BackBufferFormat = (UserWindowFlags & ENABLE_WINDOW_ALPHA) ? D3DFMT_A8R8G8B8 : D3DFMT_UNKNOWN;
 	g_d3dpp.EnableAutoDepthStencil = TRUE;
 	g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
 	g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
@@ -497,8 +588,7 @@ BOOL DXWFCreateWindow(
 	if (ret < 0)
 	{
 		pD3D->Release();
-		UnregisterClass(szWindowName, phInstance);
-		std::cout << "DXWF: Error #4 " << __FUNCTION__ << " () -> Failed to create device. CreateDevice code: " << std::hex << ret << std::dec << std::endl;
+		UnregisterClass(pszWindowName, phInstance);
 		return FALSE;
 	}
 
@@ -523,10 +613,7 @@ void DXWFSetFramerateLimit(const DWORD iMaxFPs)
 void DXWFRenderLoop()
 {
 	if (is_initialized == FALSE)
-	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> DXWF not initialized\n";
 		return;
-	}
 
 	static DWORD LastFrameTime = 0;
 
@@ -542,28 +629,7 @@ void DXWFRenderLoop()
 			continue;
 		}
 
-		if (mRenderCallbacks[DXWF_RENDERER_LOOP_] != nullptr)
-			mRenderCallbacks[DXWF_RENDERER_LOOP_]();
-
-		g_pd3dDevice->Clear(0, 0, D3DCLEAR_TARGET, 0, 1.0f, 0);
-
-		if (g_pd3dDevice->BeginScene() >= 0)
-		{
-			if (mRenderCallbacks[DXWF_RENDERER_BEGIN_SCENE_LOOP_] != nullptr)
-				mRenderCallbacks[DXWF_RENDERER_BEGIN_SCENE_LOOP_]();
-			g_pd3dDevice->EndScene();
-		}
-
-		HRESULT result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
-
-		if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
-		{
-			if (mRenderCallbacks[DXWF_RENDERER_RESET_] != nullptr)
-				mRenderCallbacks[DXWF_RENDERER_RESET_]();
-			HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
-			if (hr == D3DERR_INVALIDCALL)
-				assert(0);
-		}
+		DrawScene();
 
 		static auto show_post_frame = []()
 		{
@@ -587,16 +653,23 @@ void DXWFRenderLoop()
 void DXWFTerminate()
 {
 	if (is_initialized == FALSE)
-	{
-		std::cout << "DXWF: Error #5 " << __FUNCTION__ << " () -> DXWF not initialized\n";
 		return;
+
+	if (g_pd3dDevice) 
+	{ 
+		g_pd3dDevice->Release(); 
+		g_pd3dDevice = NULL; 
 	}
 
-	if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
-	if (pD3D) { pD3D->Release(); pD3D = NULL; }
-	pDXWindowFlags = NULL;
+	if (pD3D) 
+	{
+		pD3D->Release(); pD3D = NULL; 
+	}
+
+	iMaxFPS = 0;
+	UserWindowFlags = 0;
 	DestroyWindow(phWindow);
-	UnregisterClass(pszWindowName.c_str(), phInstance);
+	UnregisterClass(szWindowName.c_str(), phInstance);
 	phWindow = NULL;
 }
 
