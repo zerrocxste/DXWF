@@ -14,19 +14,65 @@
 #include <time.h>
 #include <windowsx.h>
 
+#if TEST_OPENGL == 0
 #include <d3d9.h>
 #pragma comment(lib, "d3d9.lib")
+#include "framework.h"
+#else
+#include "framework.h"
+#include "gl3w/glcorearb.h"
+#include "gl3w/gl3winit.h"
+#include "gl3w/gl3w.h"
+
+#include <gl\GL.h>
+#pragma comment(lib, "OpenGL32.lib")
+
+#include <gl/Glu.h>
+#pragma comment (lib, "Glu32.lib")
+
+extern "C"
+{
+	WINGDIAPI void APIENTRY glTexCoord2f(GLfloat s, GLfloat t);
+	WINGDIAPI void APIENTRY glPushMatrix(void);
+	WINGDIAPI void APIENTRY glPopMatrix(void);
+	WINGDIAPI void APIENTRY glBegin(GLenum mode);
+	WINGDIAPI void APIENTRY glVertex2f(GLfloat x, GLfloat y);
+	WINGDIAPI void APIENTRY glEnableClientState(GLenum array);
+	WINGDIAPI void APIENTRY glVertexPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer);
+	WINGDIAPI void APIENTRY glColor3f(GLfloat red, GLfloat green, GLfloat blue);
+	WINGDIAPI void APIENTRY glDisableClientState(GLenum array);
+	WINGDIAPI void APIENTRY glEnd(void);
+	WINGDIAPI void APIENTRY glMatrixMode(GLenum mode);
+	WINGDIAPI void APIENTRY glLoadIdentity(void);
+	WINGDIAPI void APIENTRY glColor4f(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+	WINGDIAPI void APIENTRY glShadeModel(GLenum mode);
+}
+
+#define GL_BGR_EXT                        0x80E0
+
+#define GL_MODELVIEW                      0x1700
+#define GL_PROJECTION                     0x1701
+#define GL_TEXTURE                        0x1702
+
+#define GL_FLAT                           0x1D00
+#define GL_SMOOTH                         0x1D01
+
+#define GL_ALPHA_TEST                     0x0BC0
+
+#define GL_CLAMP                          0x2900
+#define GL_REPEAT                         0x2901
+#endif // TEST_OPENGL == 0
 
 #include <dwmapi.h>
-
-#include "framework.h"
 
 typedef void (*callback_wndproc)(HWND, UINT, WPARAM, LPARAM);
 typedef void (*callback)();
 
+#if TEST_OPENGL == 0
 LPDIRECT3DDEVICE9        g_pd3dDevice = NULL;
 D3DPRESENT_PARAMETERS    g_d3dpp{};
-LPDIRECT3D9 pD3D = NULL;
+LPDIRECT3D9				 pD3D = NULL;
+#endif // TEST_OPENGL == 0
 
 std::string szWindowName;
 HWND phWindow;
@@ -41,6 +87,9 @@ int iTitleBarYSize = 0;
 int iMaxDontTrackLeftTopSize = 0;
 int iMaxDontTrackRightTopSize = 0;
 DWORD iMaxFPS = NULL;
+
+HDC hDC;
+HGLRC hRC;
 
 namespace helpers_func
 {
@@ -109,6 +158,7 @@ void DrawScene()
 	if (mRenderCallbacks[DXWF_RENDERER_LOOP] != nullptr)
 		mRenderCallbacks[DXWF_RENDERER_LOOP]();
 
+#if TEST_OPENGL == 0
 	g_pd3dDevice->Clear(0, 0, D3DCLEAR_TARGET, 0, 1.0f, 0);
 
 	if (g_pd3dDevice->BeginScene() >= 0)
@@ -126,6 +176,12 @@ void DrawScene()
 		if (hr == D3DERR_INVALIDCALL)
 			assert(0);
 	}
+#else
+	if (mRenderCallbacks[DXWF_RENDERER_BEGIN_SCENE_LOOP] != nullptr)
+		mRenderCallbacks[DXWF_RENDERER_BEGIN_SCENE_LOOP]();
+
+	SwapBuffers(hDC);
+#endif // TEST_OPENGL == 0
 }
 
 void DXWFWndProcCallbacks(DXWF_WNDPROC_CALLBACKS WndProcCallbackNum, callback_wndproc cCallbackFunction)
@@ -210,6 +266,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			DrawScene();
 			break;
 		case WM_SIZE:
+#if TEST_OPENGL == 0
 			if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
 			{
 				g_d3dpp.BackBufferWidth = LOWORD(lParam);
@@ -226,6 +283,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					mWndProcCallbacks[DXWF_WNDPROC_WM_SIZE](hWnd, message, wParam, lParam);
 			}
 			return 0;
+#endif // TEST_OPENGL == 0
 		case WM_SYSCOMMAND:
 			if ((wParam & 0xfff0) == SC_KEYMENU)
 				return 0;
@@ -531,7 +589,6 @@ BOOL DXWFCreateWindow(
 	UserWindowFlags = dx_window_flags;
 	szWindowName = pszWindowName;
 
-
 	WNDCLASS wcWindowClass = { 0 };
 	wcWindowClass.lpfnWndProc = (WNDPROC)WndProc;
 	wcWindowClass.style = CS_HREDRAW | CS_VREDRAW;
@@ -560,11 +617,13 @@ BOOL DXWFCreateWindow(
 	if (!phWindow)
 		return FALSE;
 
+#if TEST_OPENGL == 0
 	if ((pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
 	{
 		UnregisterClass(pszWindowName, phInstance);
 		return FALSE;
 	}
+#endif // TEST_OPENGL == 0
 
 	EnableBlurBehind(phWindow, 
 		UserWindowFlags & ENABLE_WINDOW_BLUR,
@@ -575,6 +634,7 @@ BOOL DXWFCreateWindow(
 	if (UserWindowFlags & ENABLE_WINDOW_ALPHA)
 		DXWFEnableTransparentWindow();
 	
+#if TEST_OPENGL == 0
 	ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
 	g_d3dpp.Windowed = TRUE;
 	g_d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
@@ -583,7 +643,7 @@ BOOL DXWFCreateWindow(
 	g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
 	g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
 
-	HRESULT ret = pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, phWindow, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice);
+	HRESULT ret = pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, phWindow, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice);
 
 	if (ret < 0)
 	{
@@ -591,6 +651,30 @@ BOOL DXWFCreateWindow(
 		UnregisterClass(pszWindowName, phInstance);
 		return FALSE;
 	}
+#else
+	PIXELFORMATDESCRIPTOR pfd = { 0 };
+	pfd.nSize = sizeof(PIXELFORMATDESCRIPTOR);
+	pfd.nVersion = 1;
+	pfd.dwFlags = PFD_DOUBLEBUFFER | PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW;
+	pfd.iPixelType = PFD_TYPE_RGBA;
+	pfd.cColorBits = 32;
+	pfd.cDepthBits = 24;
+	pfd.cStencilBits = 8;
+	pfd.iLayerType = PFD_MAIN_PLANE;
+
+	hDC = GetDC(phWindow);
+	int pixelFormat = ChoosePixelFormat(hDC, &pfd);
+	SetPixelFormat(hDC, pixelFormat, &pfd);
+	hRC = wglCreateContext(hDC);
+	wglMakeCurrent(hDC, hRC);
+
+	GL3::Initialize();
+
+	glViewport(0.f, 0.f, iWindowSizeX, iWindowSizeY);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	gluOrtho2D(0, iWindowSizeX, 0, iWindowSizeY);
+#endif // TEST_OPENGL == 0
 
 	return TRUE;
 }
@@ -600,10 +684,12 @@ HWND DXWFGetHWND()
 	return phWindow;
 }
 
+#if TEST_OPENGL == 0
 LPDIRECT3DDEVICE9 DXWFGetD3DDevice()
 {
 	return g_pd3dDevice;
 }
+#endif // TEST_OPENGL == 0
 
 void DXWFSetFramerateLimit(const DWORD iMaxFPs)
 {
@@ -628,6 +714,11 @@ void DXWFRenderLoop()
 			DispatchMessage(&msg);
 			continue;
 		}
+
+#if TEST_OPENGL == 1
+		glClearColor(0.f, 0.f, 0.f, 1.f);
+		glClear(GL_COLOR_BUFFER_BIT);
+#endif // TEST_OPENGL == 0
 
 		DrawScene();
 
@@ -655,6 +746,7 @@ void DXWFTerminate()
 	if (is_initialized == FALSE)
 		return;
 
+#if TEST_OPENGL == 0
 	if (g_pd3dDevice) 
 	{ 
 		g_pd3dDevice->Release(); 
@@ -665,6 +757,7 @@ void DXWFTerminate()
 	{
 		pD3D->Release(); pD3D = NULL; 
 	}
+#endif // TEST_OPENGL == 0
 
 	iMaxFPS = 0;
 	UserWindowFlags = 0;

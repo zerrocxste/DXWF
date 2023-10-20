@@ -3,6 +3,8 @@
 
 #pragma once
 
+#define TEST_OPENGL 0
+
 enum DXWF_WNDPROC_CALLBACKS
 {
 	DXWF_WNDPROC_WNDPROCHANDLER,
@@ -70,7 +72,9 @@ BOOL DXWFCreateWindow(
 
 HWND DXWFGetHWND();
 
+#if TEST_OPENGL == 0
 LPDIRECT3DDEVICE9 DXWFGetD3DDevice();
+#endif // TEST_OPENGL
 
 void DXWFSetWindowVisibleState(bool show);
 void DXWFSetWindowHideState(bool show);
